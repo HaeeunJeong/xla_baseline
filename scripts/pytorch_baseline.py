@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 pytorch_baseline.py – Universal PyTorch latency & memory probe using model *block* modules.
-Python 3.10
 """
 
 from __future__ import annotations
@@ -45,6 +44,23 @@ def _format_line(name: str,
     return (f"{name:<{name_w}s} | {device:<4s} | "
             f"{avg:>10.6f} / {mn:>10.6f} / {mx:>10.6f} ms | "
             f"{mem_mb:>8.2f} MB")
+
+
+def _resolve_device(requested: str) -> str:
+    """
+    Determine actual device to use.
+    - If requested is 'cpu' -> 'cpu'
+    - If requested is 'cuda' but CUDA unavailable -> fall back to 'cpu'
+    - Else -> 'cuda'
+    """
+    if requested == "cpu":
+        return "cpu"
+    # requested == "cuda"
+    if not torch.cuda.is_available() or torch.cuda.device_count() == 0:
+        # Informative note; keep stdout minimal.
+        print("[INFO] CUDA is unavailable, fallback to CPU.")
+        return "cpu"
+    return "cuda"
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +186,9 @@ def main():
 
     _init_dir()
 
+    # ---- device resolve (CUDA 미가용 시 자동 CPU 폴백) ----------------------
+    actual_device = _resolve_device(args.device)
+
     targets = args.model if args.model else _discover_models()
     name_width = max(len(n) for n in targets) + 2  # dynamic padding
     hdr = ("model".ljust(name_width) +
@@ -194,21 +213,21 @@ def main():
         try:
             mdl, dummy = load_model(name)
             avg, mn, mx, mem_mb = time_forward(
-                mdl, dummy, args.device, warmup=args.warmup, repeats=args.repeats
+                mdl, dummy, actual_device, warmup=args.warmup, repeats=args.repeats
             )
-            print(_format_line(name, args.device, avg, mn, mx, mem_mb, name_width))
-            csv_rows.append([timestamp, name, args.device,
+            print(_format_line(name, actual_device, avg, mn, mx, mem_mb, name_width))
+            csv_rows.append([timestamp, name, actual_device,
                              str(args.warmup), str(args.repeats),
                              f"{avg:.6f}", f"{mn:.6f}", f"{mx:.6f}", f"{mem_mb:.2f}"])
         except Exception as exc:
             print(f"[ERROR] {name}: {exc}")
-            csv_rows.append([timestamp, name, args.device,
+            csv_rows.append([timestamp, name, actual_device,
                              str(args.warmup), str(args.repeats),
                              "ERROR", "ERROR", "ERROR", str(exc)])
 
     # --------------------------- CSV dump -----------------------------------
     tag = "all" if not args.model else "_".join(args.model)
-    default_path = RESULT_DIR / f"metrics_{tag}_{args.device}.csv"
+    default_path = RESULT_DIR / f"metrics_{tag}_{actual_device}.csv"
     path = Path(args.csv_path) if args.csv_path else default_path
     path.parent.mkdir(parents=True, exist_ok=True)
 

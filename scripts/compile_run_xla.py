@@ -4,10 +4,6 @@
 compile_xla.py – Run benchmarks on **PyTorch XLA back-end** (TPU / XLA-CPU /
 PJRT-GPU). 10-step warm-up + 10-step measurement, avg/min/max latency,
 (가능할 경우) peak GPU 메모리 기록, CSV 저장.
-
-Environment
------------
-PJRT_DEVICE=CUDA  # GPU-via-PJRT 강제
 """
 
 from __future__ import annotations
@@ -151,7 +147,7 @@ def _measure(model: torch.nn.Module,
         _ = _call(); torch_xla.sync()
     xm.wait_device_ops()
 
-    peak_mem = _memory_used_mb(device)  # None if unsupported
+    # peak_mem = _memory_used_mb(device)  # None if unsupported
     latencies: List[float] = []
 
     # ─ measurement ─────────────────────────────────────────────────────
@@ -161,9 +157,10 @@ def _measure(model: torch.nn.Module,
         xm.wait_device_ops()
         latencies.append((time.perf_counter() - t0) * 1000.0)
 
-        cur = _memory_used_mb(device)
-        if peak_mem is not None and cur is not None:
-            peak_mem = max(peak_mem, cur)
+        # cur = _memory_used_mb(device)
+        # if peak_mem is not None and cur is not None:
+            # peak_mem = max(peak_mem, cur)
+        peak_mem = 0
 
     # ─ copy result to CPU (exclude comm cost) ──────────────────────────
     if isinstance(out, torch.Tensor):
@@ -188,7 +185,8 @@ def main() -> None:
     ap.add_argument("--csv_path", help="Custom CSV path")
     args = ap.parse_args()
 
-    device = xm.xla_device() if args.device.startswith("xla") else torch.device(args.device)
+    # device = xm.xla_device() if args.device.startswith("xla") else torch.device(args.device)
+    device = torch_xla.device() if args.device.startswith("xla") else torch.device(args.device)
     models = args.model if args.model else _discover_models()
     pad = max(len(m) for m in models) + 2
 

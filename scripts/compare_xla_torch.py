@@ -2,18 +2,43 @@
 # -*- coding: utf-8 -*-
 """
 bench_torch_vs_xla.py
-Python 3.11
 
 * Loads each model block defined in run_bench.py
 * Benchmarks forward-pass latency on:
-    1. Native PyTorch backend   (cuda / cpu)
-    2. PyTorch-XLA backend      (xla:0 … TPU / PJRT GPU)
+    1. Native PyTorch backend   (cpu)
+    2. PyTorch-XLA backend      (xla:CPU on PJRT)
   – Warm-up 5 runs, then measure 10 runs and report the average (ms).
 * Compares the final outputs from both backends (MAE).
 * Writes combined results to results/latency_compare_<tag>.csv
 """
 
 from __future__ import annotations
+# --- robust fix: preload libpython on Linux (no re-exec) --------------------
+import os, sys, glob, ctypes
+def _preload_libpython():
+    if not sys.platform.startswith("linux"):
+        return
+    cp = os.environ.get("CONDA_PREFIX")
+    if not cp:
+        return
+    libdir = os.path.join(cp, "lib")
+    # LD_LIBRARY_PATH 보정(재실행 없이 환경만 정리)
+    cur = os.environ.get("LD_LIBRARY_PATH", "")
+    if libdir not in cur.split(":"):
+        os.environ["LD_LIBRARY_PATH"] = libdir + (":" + cur if cur else "")
+    # libpython 선로드 → 확장 모듈이 NEEDED 심볼을 찾을 수 있게 함
+    cands = sorted(glob.glob(os.path.join(libdir, "libpython*.so*")), reverse=True)
+    for so in cands:
+        try:
+            ctypes.CDLL(so, mode=ctypes.RTLD_GLOBAL)
+            # print(f"[info] preloaded {so}")  # 필요 시 확인용
+            return
+        except OSError:
+            continue
+_preload_libpython()
+# ----------------------------------------------------------------------------
+
+
 import argparse, csv, os, time, sys
 from datetime import datetime
 from pathlib import Path
@@ -70,7 +95,8 @@ def run_backend(model: torch.nn.Module,
       backend = "torch" | "xla"
     """
     if backend == "torch":
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # 강제 CPU
+        device = torch.device("cpu")
         # print(f"Running on {device.type} backend...")
         model = model.to(device).eval()
         inputs = prepare_inputs(dummy, device)
@@ -79,8 +105,7 @@ def run_backend(model: torch.nn.Module,
         with torch.no_grad():
             for _ in range(warmup):
                 _ = forward_call(model, inputs)
-            if device.type == "cuda":
-                torch.cuda.synchronize()
+            # CPU이므로 동기화 불필요
 
         # measure
         times = []
@@ -88,16 +113,13 @@ def run_backend(model: torch.nn.Module,
             for _ in range(iters):
                 start = time.perf_counter()
                 out = forward_call(model, inputs)
-                if device.type == "cuda":
-                    torch.cuda.synchronize()
                 times.append((time.perf_counter() - start) * 1e3)
         avg_ms = sum(times) / len(times)
         return avg_ms, out.detach().cpu()
 
     # --------------------------- XLA backend --------------------------------
     elif backend == "xla":
-        device = xm.xla_device()
-        # print(f"Running on {device} backend...")
+        device = torch_xla.device()
         model = model.to(device).eval()
         inputs = prepare_inputs(dummy, device)
 
@@ -107,14 +129,16 @@ def run_backend(model: torch.nn.Module,
 
         # compile + warm-up
         for _ in range(warmup):
-            out = _call(); xm.mark_step()
+            out = _call(); 
+            torch_xla.sync()
         xm.wait_device_ops()
 
         # measure
         times = []
         for _ in range(iters):
             start = time.perf_counter()
-            out = _call(); xm.mark_step()
+            out = _call(); 
+            torch_xla.sync()
             xm.wait_device_ops()
             times.append((time.perf_counter() - start) * 1e3)
         avg_ms = sum(times) / len(times)
@@ -170,4 +194,3 @@ if __name__ == "__main__":
     # suppress PJRT spam
     os.environ.setdefault("PJRT_DEVICE", "")
     main()
-
