@@ -15,8 +15,9 @@ class ConvLinearReLU(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
             nn.Conv2d(IC, OC, kernel_size=int(KS), stride=1, padding=0, bias=True),
+            nn.BatchNorm2d(OC),
             nn.Flatten(),
-            nn.Linear(LIN, N, bias=True),
+            nn.Linear(LIN, 10, bias=True),
             nn.ReLU(),
         )
 
