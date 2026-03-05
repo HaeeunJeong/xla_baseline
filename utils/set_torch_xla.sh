@@ -36,10 +36,10 @@ sudo chmod 600 /swapfile2
 sudo mkswap /swapfile2
 sudo swapon /swapfile2
 
-# Delete swap
-sudo swapoff /swapfile2
-sudo rm /swapfile2
-
 cd ../pytorch/xla
 python setup.py bdist_wheel
 pip install dist/*.whl
+
+# Delete swap
+sudo swapoff /swapfile2
+sudo rm /swapfile2
