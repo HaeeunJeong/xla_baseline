@@ -1,17 +1,15 @@
-this version is 
-
 git clone https://github.com/pytorch/pytorch.git
 cd pytorch
-git checkout 0fabc3b
+git checkout 0fabc3b # 2.9.0
 
 git clone git clone https://github.com/pytorch/xla.git
 cd xla
-git checkout 5fab705 
+git checkout 5fab705 # 2.9.8-rc3
 
 cd ../../
 git clone https://github.com/pytorch/vision.git
 cd vision
-git checkout 7a9db90
+git checkout 7a9db90 # 0.24.0
 
 
 
