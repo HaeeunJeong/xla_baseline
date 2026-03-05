@@ -117,7 +117,7 @@ def _save_exported_program_text(ep: "torch.export.ExportedProgram", dest_dir: Pa
     # GraphModule 코드 저장
     try:
         gm = ep.graph_module
-        print("gm:", type(gm))
+        # print("gm:", type(gm))
         code_txt = getattr(gm, "code", None)
         if code_txt is None:
             # fallback: repr(GraphModule)
