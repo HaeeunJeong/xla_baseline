@@ -1,3 +1,22 @@
+'''
+HuggingFace Wrapper
+
+HF models basically returns dictionary-like objects:
+BaseModelOutput(
+    last_hidden_state,
+    pooler_output,
+    hidden_states,
+    attentions,
+    ...
+)
+
+This wrapper simplifies this object: eliminate unused outputs and normalize
+(input_ids, attention_mask)
+    →
+last_hidden_state [B,S,H]
+'''
+
+
 from __future__ import annotations
 import torch
 

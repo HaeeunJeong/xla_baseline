@@ -6,7 +6,13 @@ ID, _SEQ = "meta-llama/Llama-3.2-1B", 32
 def get_model(): return HFWrapper(transformers.AutoModel.from_pretrained(ID, dtype=torch.float32).eval())
 def get_dummy_input():
     tok = transformers.AutoTokenizer.from_pretrained(ID)
-    vocab = tok.vocab_size
-    ids = torch.randint(0, vocab, (1, _SEQ), dtype=torch.long)
-    return ids, torch.ones_like(ids)
+    tok.pad_token = tok.eos_token  # Llama has no pad token by default
+    enc = tok(
+        "Hello Llama, I want to optimize you.",
+        return_tensors="pt",
+        padding="max_length",
+        truncation=True,
+        max_length=_SEQ,
+    )
+    return enc["input_ids"], enc["attention_mask"]
 
