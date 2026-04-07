@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-pytorch_baseline.py – Universal PyTorch latency & memory probe using model *block* modules.
+pytorch_compile.py – PyTorch torch.compile mode latency & memory probe.
 """
 
 from __future__ import annotations
@@ -137,6 +137,9 @@ def time_forward(model: torch.nn.Module,
     """
     device_obj = torch.device(device)
     model = model.to(device_obj).eval()
+    
+    # torch.compile 적용 (Tracing & JIT는 warmup 첫 사이클에 흡수됩니다)
+    model = torch.compile(model, backend="aot_eager")
 
     # ------------------------- 입력을 device로 이동 --------------------------
     if isinstance(dummy_input, torch.Tensor):
@@ -227,7 +230,7 @@ def main():
 
     # --------------------------- CSV dump -----------------------------------
     tag = "all" if not args.model else "_".join(args.model)
-    default_path = RESULT_DIR / f"metrics_{tag}_{actual_device}.csv"
+    default_path = RESULT_DIR / f"metrics_compile_{tag}_{actual_device}.csv"
     path = Path(args.csv_path) if args.csv_path else default_path
     path.parent.mkdir(parents=True, exist_ok=True)
 

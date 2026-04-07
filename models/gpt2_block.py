@@ -3,7 +3,11 @@ import torch, transformers
 from ._hf_wrapper import HFWrapper
 ID, _SEQ = "gpt2", 32
 
-def get_model(): return HFWrapper(transformers.AutoModel.from_pretrained(ID).eval())
+def get_model():
+    config = transformers.GPT2Config.from_pretrained(ID)
+    config.return_dict = False
+    model = transformers.GPT2Model.from_pretrained(ID, config=config)
+    return HFWrapper(model.eval())
 def get_dummy_input():
     tok = transformers.AutoTokenizer.from_pretrained(ID)
     tok.pad_token = tok.eos_token  # GPT2 has no pad token by default

@@ -10,7 +10,7 @@ avg/min/max latency, CSV 저장.
 
 from __future__ import annotations
 
-import argparse, csv, os, sys, time
+import argparse, csv, os, re, sys, time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Tuple
@@ -51,8 +51,76 @@ import torch_xla.core.xla_model as xm
 from torch_xla.stablehlo import StableHLOGraphModule
 
 import torch_xla.debug.metrics as met
+import numpy as np
 
 # ───────────────────────────────────────────── Helper Functions ───────────
+
+_NUMPY_MAGIC = b'\x93NUMPY'
+
+_SHLO_DTYPE_MAP = {
+    'f16': np.float16,
+    'f32': np.float32,
+    'f64': np.float64,
+    'i8':  np.int8,
+    'i16': np.int16,
+    'i32': np.int32,
+    'i64': np.int64,
+    'bf16': np.uint16,   # bfloat16 → 2-byte raw
+}
+
+# Pattern: __constant_{dims}x{dtype}  optionally followed by _{digit_suffix}
+# Examples: __constant_16x10xf32, __constant_xf32 (scalar), __constant_1x1x32x32xi8_0
+_CONST_RE = re.compile(
+    r'^__constant_'
+    r'(?P<shape>(?:\d+x)*)'       # shape dims: '16x10x' or '' (scalar)
+    r'(?:x(?=\D))?'               # consume a bare 'x' before dtype (scalar case)
+    r'(?P<dtype>[a-z]+\d+)'       # dtype: 'f32', 'i64', etc.
+    r'(?:_\d+)?$'                 # optional disambiguating suffix: '_0'
+)
+
+
+def _normalize_data_dir(data_dir: Path) -> None:
+    """Convert raw-binary __constant_* files to numpy .npy in-place."""
+    if not data_dir.is_dir():
+        return
+    for fpath in sorted(data_dir.iterdir()):
+        if not fpath.is_file() or not fpath.name.startswith('__constant'):
+            continue
+        # Skip files that already have the numpy magic header
+        with fpath.open('rb') as f:
+            header = f.read(6)
+        if header == _NUMPY_MAGIC:
+            continue
+
+        m = _CONST_RE.match(fpath.name)
+        if m is None:
+            print(f"  [WARN] cannot parse constant filename: {fpath.name}")
+            continue
+
+        shape_str = m.group('shape')    # e.g. '16x10x' or '' (scalar)
+        dtype_str = m.group('dtype')    # e.g. 'f32'
+
+        np_dtype = _SHLO_DTYPE_MAP.get(dtype_str)
+        if np_dtype is None:
+            print(f"  [WARN] unknown dtype '{dtype_str}' in {fpath.name}")
+            continue
+
+        shape: tuple
+        if shape_str:
+            shape = tuple(int(d) for d in shape_str.rstrip('x').split('x'))
+        else:
+            shape = ()   # scalar
+
+        raw = fpath.read_bytes()
+        arr = np.frombuffer(raw, dtype=np_dtype).reshape(shape).copy()
+        # np.save(str) appends .npy; use open file handle to overwrite in-place
+        with fpath.open('wb') as f:
+            np.save(f, arr)
+        # Remove stale .npy duplicate if a previous run created one
+        dup = fpath.parent / (fpath.name + '.npy')
+        if dup.exists():
+            dup.unlink()
+
 def _fmt_line(name, device, avg, mn, mx, pad):
     return (f"{name:<{pad}s} | {device:<7s} | "
             f"{avg:>10.3f} / {mn:>10.3f} / {mx:>10.3f} ms")
@@ -133,6 +201,8 @@ def main() -> None:
             continue
 
         try:
+            _normalize_data_dir(shlo_dir / "data")
+            _normalize_data_dir(shlo_dir / "constants")
             _, dummy = load_model(name)
             runner  = StableHLOGraphModule.load(str(shlo_dir))
             avg, mn, mx = _measure(
