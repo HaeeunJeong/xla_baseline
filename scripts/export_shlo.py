@@ -51,7 +51,7 @@ from torch_xla.stablehlo import exported_program_to_stablehlo
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.extend([str(ROOT_DIR), str(ROOT_DIR / "scripts")])
 
-from scripts.pytorch_baseline import load_model, _discover_models  # noqa: E402
+from scripts.pytorch_eager import load_model, _discover_models  # noqa: E402
 
 RESULTS_DIR = ROOT_DIR / "results" / "xla"
 DUMP_DIR = RESULTS_DIR / "dump"

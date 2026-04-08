@@ -1,7 +1,7 @@
 from __future__ import annotations
 import torch, transformers
 from ._hf_wrapper import HFWrapper
-ID, _SEQ = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B", 128
+ID, _SEQ = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B", 512
 
 def get_model():
     config = transformers.Qwen2Config.from_pretrained(ID)

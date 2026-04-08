@@ -4,7 +4,7 @@ from ._hf_wrapper import HFWrapper
 from transformers import BertModel
 
 _MODEL_ID = "bert-base-uncased"
-_SEQ = 32
+_SEQ = 512
 
 def get_model():
     config = transformers.BertConfig.from_pretrained(_MODEL_ID)

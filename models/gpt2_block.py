@@ -1,7 +1,7 @@
 from __future__ import annotations
 import torch, transformers
 from ._hf_wrapper import HFWrapper
-ID, _SEQ = "gpt2", 32
+ID, _SEQ = "gpt2", 512
 
 def get_model():
     config = transformers.GPT2Config.from_pretrained(ID)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import torch, transformers
 from ._hf_wrapper import HFWrapper
-ID, _SEQ = "meta-llama/Llama-3.2-1B", 128
+ID, _SEQ = "meta-llama/Llama-3.2-1B", 512
 
 def get_model(): return HFWrapper(transformers.AutoModel.from_pretrained(ID, dtype=torch.bfloat16).eval())
 def get_dummy_input():

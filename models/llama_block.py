@@ -1,7 +1,7 @@
 from __future__ import annotations
 import torch, transformers
 from ._hf_wrapper import HFWrapper
-ID, _SEQ = "meta-llama/Llama-3.2-1B", 32
+ID, _SEQ = "meta-llama/Llama-3.2-1B", 512
 
 def get_model():
     config = transformers.LlamaConfig.from_pretrained(ID)
