@@ -20,7 +20,7 @@ from typing import Any, List, Tuple, Union
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.extend([str(ROOT_DIR), str(ROOT_DIR / "scripts")])
 
-from scripts.pytorch_baseline import load_model, _discover_models
+from scripts.pytorch_eager import load_model, _discover_models
 
 RESULTS_DIR = ROOT_DIR / "results" / "xla"
 DUMP_DIR = RESULTS_DIR / "dump_hlo"
