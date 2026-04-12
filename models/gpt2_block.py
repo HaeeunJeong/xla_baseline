@@ -9,14 +9,7 @@ def get_model():
     model = transformers.GPT2Model.from_pretrained(ID, config=config)
     return HFWrapper(model.eval())
 def get_dummy_input():
-    tok = transformers.AutoTokenizer.from_pretrained(ID)
-    tok.pad_token = tok.eos_token  # GPT2 has no pad token by default
-    enc = tok(
-        "Hello GPT2, I want to optimize you.",
-        return_tensors="pt",
-        padding="max_length",
-        truncation=True,
-        max_length=_SEQ,
-    )
-    return enc["input_ids"], enc["attention_mask"]
+    input_ids = (torch.arange(_SEQ, dtype=torch.long) % 1000).unsqueeze(0)
+    attention_mask = torch.ones((1, _SEQ), dtype=torch.long)
+    return input_ids, attention_mask
 

@@ -18,19 +18,8 @@ def get_model():
     return HFWrapper(model.eval())
 
 def get_dummy_input():
-    tok = transformers.AutoTokenizer.from_pretrained(_MODEL_ID)
-    enc = tok(
-        "Hello BERT, I want to optimize you.",
-        return_tensors="pt",
-        padding="max_length",
-        truncation=True,
-        max_length=_SEQ,
-    )
-    input_ids = enc["input_ids"]
-    attention_mask = enc["attention_mask"]
-    
-    token_type_ids = enc.get("token_type_ids")
-    if token_type_ids is None:
-        token_type_ids = torch.zeros_like(input_ids)
+    input_ids = (torch.arange(_SEQ, dtype=torch.long) % 1000).unsqueeze(0)
+    attention_mask = torch.ones((1, _SEQ), dtype=torch.long)
+    token_type_ids = torch.zeros_like(input_ids)
 
     return input_ids, attention_mask, token_type_ids
