@@ -85,17 +85,22 @@ def load_model_block(name: str, device: str = "cpu") -> tuple[torch.nn.Module, A
 # 입력 구성 & HF 래퍼
 # ─────────────────────────────────────────────────────────────────────────────
 class HFWrapper(torch.nn.Module):
-    """kwargs(HF) → forward(ids, mask)"""
+    """kwargs(HF) → forward(ids, mask, [token_type_ids])"""
     def __init__(self, m: torch.nn.Module):
         super().__init__(); self.m = m
-    def forward(self, ids, mask):  # type: ignore
-        return self.m(input_ids=ids, attention_mask=mask).last_hidden_state
+    def forward(self, ids, mask, token_type_ids=None):  # type: ignore
+        kwargs = {"input_ids": ids, "attention_mask": mask}
+        if token_type_ids is not None:
+            kwargs["token_type_ids"] = token_type_ids
+        out = self.m(**kwargs)
+        if isinstance(out, tuple):
+            return out[0]
+        return out.last_hidden_state
 
 def make_inputs(dummy: Any) -> tuple:
     """dummy 사양을 torch.export 가 받을 *args 로 변환"""
     if isinstance(dummy, tuple):
-        # (Tensor, Tensor) = GNN  vs  shape-tuple = Vision
-        if len(dummy) == 2 and all(isinstance(t, torch.Tensor) for t in dummy):
+        if all(isinstance(t, torch.Tensor) for t in dummy):
             return dummy
         return (torch.randn(*dummy),)
     if isinstance(dummy, dict):          # LLM dict
