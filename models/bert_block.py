@@ -11,10 +11,7 @@ def get_model():
     config.return_dict = False
 
     # Model Loading
-    # 1. Create BERT-base uncased: 12 layers, 768 hidden size, 12 attention heads, 110M parameters
-    # 2. Download the model weights from Hugging Face and load them into the model
-    # 3. Generate model graph consisted with PyTorch module
-    model = transformers.BertModel(config)
+    model = transformers.BertModel.from_pretrained(_MODEL_ID)
     return HFWrapper(model.eval())
 
 def get_dummy_input():

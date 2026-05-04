@@ -7,6 +7,7 @@ def get_model():
     config = transformers.LlamaConfig.from_pretrained(ID)
     config.num_hidden_layers = 1
     config.return_dict = False
+    config.output_attentions = True
     model = transformers.LlamaModel(config).eval()
     return HFWrapper(model)
 
