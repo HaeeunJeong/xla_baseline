@@ -49,6 +49,41 @@ Run the script from the `utils/` folder:
 cd utils
 bash set_torch_xla.sh
 ```
+*Trouble shooting*
+- If you got the error below, please fix some depencencies of PyTorch
+```bash
+/usr/bin/ld: test_nativert/CMakeFiles/test_nativert.dir/__/__/__/torch/nativert/executor/triton/CpuTritonKernelManager.cpp.o: undefined reference to symbol 'dlclose@@GLIBC_2.2.5'
+/usr/bin/ld: /usr/lib/gcc/x86_64-linux-gnu/10/../../../x86_64-linux-gnu/libdl.so: error adding symbols: DSO missing from command line
+collect2: error: ld returned 1 exit status
+```
+
+```bash
+#In pytorch/test/cpp/nativert/CMakeLists.txt
+target_link_libraries(test_nativert PRIVATE ${NATIVERT_TEST_DEPENDENCIES})
+-> target_link_libraries(test_nativert PRIVATE ${NATIVERT_TEST_DEPENDENCIES} ${CMAKE_DL_LIBS})
+
+# In pytorch/caffe2/CMakeLists.txt
+target_link_libraries(${test_name} torch_library gtest_main gtest gmock)
+-> target_link_libraries(${test_name} torch_library gtest_main gtest gmock ${CMAKE_DL_LIBS})
+```
+
+- If you encounter an implicit conversion error during PyTorch/XLA compilation:
+```bash
+ERROR: ... Compiling xla/codegen/mlir_kernel_source.cc failed:
+error: could not convert 'xla::MlirKernelSource(...)' from 'xla::MlirKernelSource' to 'absl::lts_20250512::StatusOr<xla::MlirKernelSource>'
+```
+
+To fix this, you need to modify the downloaded XLA source code in your Bazel cache to explicitly use `absl::in_place` for constructing `absl::StatusOr`. 
+Locate the file in your bazel cache (the exact path will be in your error log, typically `~/.cache/bazel/_bazel_<user>/<hash>/external/xla/xla/codegen/mlir_kernel_source.cc`):
+
+```cpp
+// Change line 56 from:
+return MlirKernelSource(std::move(context), std::move(mlir_module));
+
+// To:
+return absl::StatusOr<MlirKernelSource>(absl::in_place, std::move(context), std::move(mlir_module));
+```
+> **⚠️ Currently this install script is not working... Please follow the commands in script instead.**
 > **⚠️ Memory Requirement Warning:** Compiling `torch-xla` from source **requires up to ~170GB of memory**. On standard workstations, the compilation can easily crash the system due to Out-Of-Memory (OOM) errors. The `set_torch_xla.sh` script natively allocates a temporary 64GB swap file (`swapfile2`) on your root disk during the build process. Please ensure you have sufficient disk space.
 
 ### GPU Execution (Using Official Prebuilt Docker Images)
