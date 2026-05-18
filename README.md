@@ -187,6 +187,8 @@ As mentioned, all scripts in the `scripts/` directory **require the `torch-xla` 
 
 The `models/` directory contains reference model implementations in the format of `<MODEL>_block.py`. The scripts dynamically route to these definitions based on the provided string argument.
 
+> **Quantization Support:** Each base model also includes auto-generated **BFloat16** (`<MODEL>_bf16`) and **INT8** (`<MODEL>_int8`) variants utilizing `torch.bfloat16` strict casting and `torchao` dynamic quantization, respectively. Note that some precision variants may skip export if they contain operations currently uncapturable by the PyTorch-XLA lowerings (e.g., `aten::_int_mm`).
+
 | Category | Key (`<MODEL>`) | Source/Library | Notes |
 | --- | --- | --- | --- |
 | Custom | `mm` | `models/mm_block.py` | Simple tensor matrix multiplication (Matmul) |

@@ -1,6 +1,6 @@
 from __future__ import annotations
 import torch
-from .llama_block import get_model as base_get_model, get_dummy_input
+from .mobilenet_block import get_model as base_get_model, get_dummy_input
 
 def get_model():
     model = base_get_model()

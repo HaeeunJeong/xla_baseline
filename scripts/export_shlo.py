@@ -97,14 +97,19 @@ class HFWrapper(torch.nn.Module):
             return out[0]
         return out.last_hidden_state
 
-def make_inputs(dummy: Any) -> tuple:
+def make_inputs(dummy: Any, name: str = "") -> tuple:
     """dummy 사양을 torch.export 가 받을 *args 로 변환"""
+    def _cast_if_bf16(t: torch.Tensor) -> torch.Tensor:
+        if "bf16" in name and t.dtype == torch.float32:
+            return t.to(torch.bfloat16)
+        return t
+
     if isinstance(dummy, tuple):
         if all(isinstance(t, torch.Tensor) for t in dummy):
-            return dummy
-        return (torch.randn(*dummy),)
+            return tuple(_cast_if_bf16(t) for t in dummy)
+        return tuple(_cast_if_bf16(t) for t in (torch.randn(*dummy),))
     if isinstance(dummy, dict):          # LLM dict
-        return (dummy["input_ids"], dummy["attention_mask"])
+        return (_cast_if_bf16(dummy["input_ids"]), _cast_if_bf16(dummy["attention_mask"]))
     raise RuntimeError(f"Unsupported dummy type: {type(dummy)}")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -206,7 +211,23 @@ def main() -> None:
     ap.add_argument("--csv", action="store_true", help="append csv log")
     args = ap.parse_args()
 
-    keys: Iterable[str] = args.model or discover_model_keys()
+    raw_keys = args.model or discover_model_keys()
+    keys: list[str] = []
+    all_discovered = discover_model_keys()
+
+    if args.model:
+        # Expand explicitly requested base models to include their quantized versions
+        for k in raw_keys:
+            keys.append(k)
+            if not k.endswith("_bf16") and not k.endswith("_int8"):
+                if f"{k}_bf16" in all_discovered:
+                    keys.append(f"{k}_bf16")
+                if f"{k}_int8" in all_discovered:
+                    keys.append(f"{k}_int8")
+        # Remove duplicates preserving order
+        keys = list(dict.fromkeys(keys))
+    else:
+        keys = raw_keys
     timestamp = datetime.now().isoformat(timespec="seconds")
     rows: list[list[str]] = []
 
@@ -219,7 +240,7 @@ def main() -> None:
             if isinstance(dummy, dict):
                 model = HFWrapper(model)
 
-            ep = torch.export.export(model, make_inputs(dummy))
+            ep = torch.export.export(model, make_inputs(dummy, name))
 
             # 1) ExportedProgram 텍스트 저장
             SHLO_DIR = RESULTS_DIR / "StableHLO"
