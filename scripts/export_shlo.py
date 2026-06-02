@@ -160,46 +160,6 @@ def _save_exported_program_text(ep: "torch.export.ExportedProgram", dest_dir: Pa
         with fx_path.open("w", encoding="utf-8") as f:
             f.write(f"# failed to dump FX graph: {type(e).__name__}: {e}\n")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 보조: StableHLO → Linalg 변환 실행
-# ─────────────────────────────────────────────────────────────────────────────
-def _lower_stablehlo_to_linalg(stablehlo_dir: Path, model_name: str) -> None:
-    """
-    stablehlo bundle 디렉터리 내 functions/*.mlir 파일을 찾아
-    다음 명령을 실행:
-      stablehlo-opt <mlir> --stablehlo-legalize-to-linalg -o {model}_linalg.mlir
-
-    - stablehlo-opt 가 PATH에 없거나, .mlir 파일이 없으면 조용히 건너뜀.
-    """
-    tool = shutil.which("stablehlo-opt")
-    if tool is None:
-        print(f"   [skip] stablehlo-opt not found in PATH")
-        return
-
-    func_dir = stablehlo_dir / "functions"
-    if not func_dir.is_dir():
-        print(f"   [skip] functions dir not found: {func_dir}")
-        return
-
-    # 우선순위: forward.mlir → 그 외 임의의 첫 번째 .mlir
-    mlir_candidates = list(func_dir.glob("*.mlir"))
-    if not mlir_candidates:
-        print(f"   [skip] no .mlir found under {func_dir}")
-        return
-
-    forward_mlir = func_dir / "forward.mlir"
-    src_mlir = forward_mlir if forward_mlir.exists() else mlir_candidates[0]
-
-    out_path = stablehlo_dir / f"{model_name}_linalg.mlir"
-    cmd = [tool, str(src_mlir), "--stablehlo-legalize-to-linalg", "-o", str(out_path)]
-
-    try:
-        print(f"   stablehlo-opt → {out_path.name}")
-        proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
-        if proc.stdout:
-            pass
-    except subprocess.CalledProcessError as e:
-        print(f"   [stablehlo-opt ERROR] {e.returncode}: {e.stderr.strip() or e.stdout.strip()}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # main
@@ -216,18 +176,12 @@ def main() -> None:
     all_discovered = discover_model_keys()
 
     if args.model:
-        # Expand explicitly requested base models to include their quantized versions
         for k in raw_keys:
-            keys.append(k)
-            if not k.endswith("_bf16") and not k.endswith("_int8"):
-                if f"{k}_bf16" in all_discovered:
-                    keys.append(f"{k}_bf16")
-                if f"{k}_int8" in all_discovered:
-                    keys.append(f"{k}_int8")
-        # Remove duplicates preserving order
+            if not k.endswith("_bf16") and not k.endswith("_int8") and not k.endswith("_fp16"):
+                keys.append(k)
         keys = list(dict.fromkeys(keys))
     else:
-        keys = raw_keys
+        keys = [k for k in raw_keys if not k.endswith("_bf16") and not k.endswith("_int8") and not k.endswith("_fp16")]
     timestamp = datetime.now().isoformat(timespec="seconds")
     rows: list[list[str]] = []
 
@@ -252,10 +206,12 @@ def main() -> None:
             # 2) StableHLO 번들 저장
             shlo = exported_program_to_stablehlo(ep)
             shlo.save(dest)
+            
+            # Save the calibrated PyTorch state_dict for accurate verification
+            pt_model_path = dest / "calibrated_pytorch_model.pt"
+            torch.save(model.state_dict(), pt_model_path)
+            
             print(f"   ✓ saved → {dest}")
-
-            # 3) StableHLO → Linalg 변환 시도
-            _lower_stablehlo_to_linalg(dest, name)
 
             rows.append([timestamp, name, "ok", ""])
         except Exception as e:
