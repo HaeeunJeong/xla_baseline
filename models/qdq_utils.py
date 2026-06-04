@@ -1,16 +1,17 @@
 import torch
 import torch.nn as nn
-from torch.ao.quantization.observer import MinMaxObserver
+from torch.ao.quantization.observer import MinMaxObserver, HistogramObserver
 
 class QDQConv2d(nn.Module):
     def __init__(self, orig_conv: nn.Conv2d):
         super().__init__()
         self.orig_conv = orig_conv
         
-        self.a_obs = MinMaxObserver(dtype=torch.qint8, qscheme=torch.per_tensor_symmetric)
+        # qint8 for activations (symmetric) - using HistogramObserver to reduce outlier impact
+        self.a_obs = HistogramObserver(dtype=torch.qint8, qscheme=torch.per_tensor_symmetric)
+        # qint8 for weights (symmetric)
         self.w_obs = MinMaxObserver(dtype=torch.qint8, qscheme=torch.per_tensor_symmetric)
         
-        # Initialize weight observer immediately since weights are static
         self.w_obs(self.orig_conv.weight)
         w_scale, w_zp = self.w_obs.calculate_qparams()
         self.w_scale = w_scale.item()
@@ -19,8 +20,10 @@ class QDQConv2d(nn.Module):
         self.a_scale = 1.0
         self.a_zp = 0
         
-        self.quant_min = -128
-        self.quant_max = 127
+        self.quant_min_a = -128
+        self.quant_max_a = 127
+        self.quant_min_w = -128
+        self.quant_max_w = 127
         self.calibrate = False
         
     @property
@@ -57,14 +60,14 @@ class QDQConv2d(nn.Module):
             self.a_zp = int(a_zp.item())
             
         xq = torch.ops.quantized_decomposed.quantize_per_tensor(
-            x, self.a_scale, self.a_zp, self.quant_min, self.quant_max, torch.int8)
+            x, self.a_scale, self.a_zp, self.quant_min_a, self.quant_max_a, torch.int8)
         xdq = torch.ops.quantized_decomposed.dequantize_per_tensor(
-            xq, self.a_scale, self.a_zp, self.quant_min, self.quant_max, torch.int8)
+            xq, self.a_scale, self.a_zp, self.quant_min_a, self.quant_max_a, torch.int8)
         
         wq = torch.ops.quantized_decomposed.quantize_per_tensor(
-            self.orig_conv.weight, self.w_scale, self.w_zp, self.quant_min, self.quant_max, torch.int8)
+            self.orig_conv.weight, self.w_scale, self.w_zp, self.quant_min_w, self.quant_max_w, torch.int8)
         wdq = torch.ops.quantized_decomposed.dequantize_per_tensor(
-            wq, self.w_scale, self.w_zp, self.quant_min, self.quant_max, torch.int8)
+            wq, self.w_scale, self.w_zp, self.quant_min_w, self.quant_max_w, torch.int8)
             
         return nn.functional.conv2d(xdq, wdq, self.orig_conv.bias, 
                                     self.orig_conv.stride, self.orig_conv.padding, 
@@ -86,8 +89,10 @@ class QDQLinear(nn.Module):
         self.a_scale = 1.0
         self.a_zp = 0
         
-        self.quant_min = -128
-        self.quant_max = 127
+        self.quant_min_a = -128
+        self.quant_max_a = 127
+        self.quant_min_w = -128
+        self.quant_max_w = 127
         self.calibrate = False
         
     @property
@@ -124,17 +129,19 @@ class QDQLinear(nn.Module):
             self.a_zp = int(a_zp.item())
             
         xq = torch.ops.quantized_decomposed.quantize_per_tensor(
-            x, self.a_scale, self.a_zp, self.quant_min, self.quant_max, torch.int8)
+            x, self.a_scale, self.a_zp, self.quant_min_a, self.quant_max_a, torch.int8)
         xdq = torch.ops.quantized_decomposed.dequantize_per_tensor(
-            xq, self.a_scale, self.a_zp, self.quant_min, self.quant_max, torch.int8)
+            xq, self.a_scale, self.a_zp, self.quant_min_a, self.quant_max_a, torch.int8)
         
         wq = torch.ops.quantized_decomposed.quantize_per_tensor(
-            self.orig_linear.weight, self.w_scale, self.w_zp, self.quant_min, self.quant_max, torch.int8)
+            self.orig_linear.weight, self.w_scale, self.w_zp, self.quant_min_w, self.quant_max_w, torch.int8)
         wdq = torch.ops.quantized_decomposed.dequantize_per_tensor(
-            wq, self.w_scale, self.w_zp, self.quant_min, self.quant_max, torch.int8)
+            wq, self.w_scale, self.w_zp, self.quant_min_w, self.quant_max_w, torch.int8)
             
         return nn.functional.linear(xdq, wdq, self.orig_linear.bias)
 
+def fuse_conv_bn(conv: nn.Conv2d, bn: nn.BatchNorm2d) -> nn.Conv2d:
+    fused_conv = nn.Conv2d(
 def apply_qdq(module: nn.Module) -> nn.Module:
     for name, child in module.named_children():
         if isinstance(child, nn.Conv2d):
@@ -146,45 +153,27 @@ def apply_qdq(module: nn.Module) -> nn.Module:
     return module
 
 def apply_qdq_and_calibrate(model: nn.Module, base_dummy_inputs) -> nn.Module:
-    """
-    Applies QDQ blocks and runs a 100-loop calibration with variance-scaled noise
-    to simulate a realistic dataset and calculate robust min/max bounds.
-    """
+    print("   [QDQ] Wrapping layers with QDQ modules...")
     model = apply_qdq(model)
     
-    # Enable calibration mode
-    for m in model.modules():
-        if hasattr(m, 'calibrate'):
-            m.calibrate = True
-    
-    # Extract the shape from dummy inputs to generate varied batches
-    if isinstance(base_dummy_inputs, dict):
-        first_key = list(base_dummy_inputs.keys())[0]
-        base_shape = base_dummy_inputs[first_key].shape
-    elif isinstance(base_dummy_inputs, tuple):
-        base_shape = base_dummy_inputs[0].shape
-    else:
-        base_shape = base_dummy_inputs.shape
-
+    print("   [QDQ] Running robust calibration (100 batches)...")
+    model.eval()
+    for name, module in model.named_modules():
+        if isinstance(module, (QDQConv2d, QDQLinear)):
+            module.calibrate = True
+            
     with torch.no_grad():
-        print("   [QDQ] Running robust calibration (100 batches)...")
-        for i in range(100):
-            # Simulate dataset with varying magnitude/variance
-            scale_factor = 1.0 + (i / 100.0) * 2.0  # Scales from 1.0 to 3.0
-            noise = torch.randn(base_shape) * scale_factor
-            
-            if isinstance(base_dummy_inputs, dict):
-                inputs = {k: noise for k in base_dummy_inputs}
-                model(**inputs)
-            elif isinstance(base_dummy_inputs, tuple):
-                inputs = (noise,) * len(base_dummy_inputs)
-                model(*inputs)
+        for _ in range(100):
+            # Using random noise with proper shape
+            if isinstance(base_dummy_inputs, tuple):
+                noise_inputs = tuple(torch.randn_like(t) for t in base_dummy_inputs)
+                model(*noise_inputs)
             else:
-                model(noise)
-            
-    # Disable calibration mode
-    for m in model.modules():
-        if hasattr(m, 'calibrate'):
-            m.calibrate = False
+                noise_inputs = torch.randn_like(base_dummy_inputs)
+                model(noise_inputs)
+                
+    for name, module in model.named_modules():
+        if isinstance(module, (QDQConv2d, QDQLinear)):
+            module.calibrate = False
             
     return model
