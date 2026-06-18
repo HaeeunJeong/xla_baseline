@@ -140,8 +140,6 @@ class QDQLinear(nn.Module):
             
         return nn.functional.linear(xdq, wdq, self.orig_linear.bias)
 
-def fuse_conv_bn(conv: nn.Conv2d, bn: nn.BatchNorm2d) -> nn.Conv2d:
-    fused_conv = nn.Conv2d(
 def apply_qdq(module: nn.Module) -> nn.Module:
     for name, child in module.named_children():
         if isinstance(child, nn.Conv2d):
