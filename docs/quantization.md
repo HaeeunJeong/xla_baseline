@@ -38,3 +38,12 @@ python scripts/export_ptq_shlo.py
 1. It prioritizes models with `_int8` and `_bf16` suffixes in the `models/` directory.
 2. It injects the XNNPACK Quantizer (or the QDQ pattern from `qdq_utils.py`) into the model and performs calibration with dummy inputs to fix the scale and zero-point.
 3. The static quantized graph (FX Graph) is processed through the `torch_xla` toolchain and saved in StableHLO format (`MLIR` + `calibrated_pytorch_model.pt`) into the `results/xla/StableHLO/` directory.
+
+### Exported Data Directory (`data/`)
+When the quantized model is exported, a `data/` directory is created alongside the MLIR file. This directory contains the serialized binary data of the PyTorch model's weights and state buffers.
+
+Because the model was calibrated using quantization observers, the internal state buffers of these observers are also dumped into this directory. Common files you will see include:
+
+* **`.eps` (Epsilon)**: A very small constant value (e.g., `1e-5`) registered as a buffer in the observers. It acts as a safety lower bound to prevent **Division by Zero** errors when calculating the quantization scale (e.g., `scale = (max - min) / 255`; avoiding zero if max equals min).
+* **`min_val` / `max_val`**: Buffers that record the minimum and maximum tensor values observed during the dummy input calibration phase.
+* **`histogram`**: An array buffer used by the `HistogramObserver` to count value frequencies across different bins, which helps in calculating optimal clipping ranges by reducing the impact of outliers.

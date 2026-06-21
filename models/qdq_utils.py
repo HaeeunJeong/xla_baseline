@@ -8,24 +8,30 @@ class QDQConv2d(nn.Module):
         self.orig_conv = orig_conv
         
         # qint8 for activations (symmetric) - using HistogramObserver to reduce outlier impact
+        # per_tensor_symmetric: Only one scale parameter and one zero point for one tensor
         self.a_obs = HistogramObserver(dtype=torch.qint8, qscheme=torch.per_tensor_symmetric)
         # qint8 for weights (symmetric)
         self.w_obs = MinMaxObserver(dtype=torch.qint8, qscheme=torch.per_tensor_symmetric)
         
+        # Execute weight overserver once to fix quantization parameters in this time
         self.w_obs(self.orig_conv.weight)
         w_scale, w_zp = self.w_obs.calculate_qparams()
         self.w_scale = w_scale.item()
         self.w_zp = int(w_zp.item())
         
+        # Activation scale and zero point are temperary
         self.a_scale = 1.0
         self.a_zp = 0
         
+        # Both activation and weights use signed int8
         self.quant_min_a = -128
         self.quant_max_a = 127
         self.quant_min_w = -128
         self.quant_max_w = 127
         self.calibrate = False
         
+    # property: External codes can access the model.weight and model.bias
+    # after this wrapper is applied
     @property
     def weight(self):
         return self.orig_conv.weight
@@ -52,6 +58,8 @@ class QDQConv2d(nn.Module):
             self.w_zp = int(state_dict.pop(prefix + 'w_zp').item())
         super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
         
+    # Do forward propagation to calibrate the quantization parameters,
+    # reflecting the activation value range
     def forward(self, x):
         if self.calibrate:
             self.a_obs(x)
